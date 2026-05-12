@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AnalysisResult, Medication, SafetyBriefing } from '@/types'
+import type { AnalysisResult, Attribution, Medication, SafetyBriefing } from '@/types'
 
 type Step = 'input' | 'confirm' | 'analysis' | 'briefing'
 
@@ -11,6 +11,8 @@ interface SessionState {
   warnings: string[]
   analysisResult: AnalysisResult | null
   briefing: SafetyBriefing | null
+  symptoms: string
+  symptomAttributions: Attribution[] | null
   setMedications: (meds: Medication[]) => void
   setStep: (step: Step) => void
   setLoading: (v: boolean) => void
@@ -18,6 +20,8 @@ interface SessionState {
   setWarnings: (w: string[]) => void
   setAnalysisResult: (result: AnalysisResult) => void
   setBriefing: (b: SafetyBriefing) => void
+  setSymptoms: (s: string) => void
+  setSymptomAttributions: (a: Attribution[] | null) => void
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -28,6 +32,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   warnings: [],
   analysisResult: null,
   briefing: null,
+  symptoms: '',
+  symptomAttributions: null,
   setMedications: (medications) => set({ medications }),
   setStep: (currentStep) => set({ currentStep }),
   setLoading: (isLoading) => set({ isLoading }),
@@ -35,4 +41,6 @@ export const useSessionStore = create<SessionState>((set) => ({
   setWarnings: (warnings) => set({ warnings }),
   setAnalysisResult: (analysisResult) => set({ analysisResult }),
   setBriefing: (briefing) => set({ briefing }),
+  setSymptoms: (symptoms) => set({ symptoms }),
+  setSymptomAttributions: (symptomAttributions) => set({ symptomAttributions }),
 }))

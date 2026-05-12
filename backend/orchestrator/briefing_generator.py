@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -100,10 +101,34 @@ async def _generate_provider_questions(
         ]
 
 
-async def generate_briefing(analysis: AnalysisResult) -> SafetyBriefing:
+async def generate_briefing(
+    analysis: AnalysisResult,
+    symptoms: list[str] | None = None,
+    include_faers: bool = True,
+) -> SafetyBriefing:
     flagged = [ix for ix in analysis.interactions if ix.severity != "unknown"]
     sources = _compile_sources(analysis.interactions)
-    provider_questions = await _generate_provider_questions(analysis, flagged)
+
+    async def _noop() -> None:
+        return None
+
+    # Run provider questions, FAERS fetch, and symptom attribution in parallel
+    from tools.openfda import get_faers_batch  # noqa: PLC0415
+    from tools.symptom_attributor import attribute_symptoms  # noqa: PLC0415
+
+    q_task = _generate_provider_questions(analysis, flagged)
+    faers_task = get_faers_batch(analysis.medications) if include_faers else _noop()
+    attr_task = attribute_symptoms(symptoms, analysis.medications) if symptoms else _noop()
+
+    q_result, faers_result, attr_result = await asyncio.gather(
+        q_task, faers_task, attr_task, return_exceptions=True
+    )
+
+    provider_questions = q_result if not isinstance(q_result, Exception) else [
+        "Please discuss your medications with your healthcare provider."
+    ]
+    adverse_events = faers_result if include_faers and not isinstance(faers_result, Exception) else None
+    symptom_attributions = attr_result if symptoms and not isinstance(attr_result, Exception) else None
 
     return SafetyBriefing(
         session_id=analysis.session_id,
@@ -111,8 +136,8 @@ async def generate_briefing(analysis: AnalysisResult) -> SafetyBriefing:
         interactions=analysis.interactions,
         provider_questions=provider_questions,
         sources=sources,
-        symptom_attributions=None,
-        adverse_events=None,
+        adverse_events=adverse_events,
+        symptom_attributions=symptom_attributions,
     )
 
 

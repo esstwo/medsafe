@@ -55,13 +55,31 @@ export interface Citation {
   section: string | null
 }
 
+export interface Attribution {
+  symptom: string
+  drug_name: string
+  rxcui: string | null
+  likelihood: 'probable' | 'possible' | 'unlikely' | 'unknown'
+  evidence_summary: string
+  source: Citation | null
+}
+
+export interface FAERSResult {
+  drug_name: string
+  rxcui: string | null
+  total_reports: number
+  serious_outcomes: number
+  top_reactions: string[]
+  data_sparse: boolean
+}
+
 export interface SafetyBriefing {
   session_id: string
   generated_at: string
   medications: Medication[]
   interactions: Interaction[]
-  symptom_attributions: null
-  adverse_events: null
+  symptom_attributions: Attribution[] | null
+  adverse_events: FAERSResult[] | null
   provider_questions: string[]
   disclaimer: string
   sources: Citation[]
@@ -70,4 +88,8 @@ export interface SafetyBriefing {
 export interface AddDrugResponse {
   new_medication: Medication
   new_interactions: Interaction[]
+}
+
+export interface AttributionResponse {
+  attributions: Attribution[]
 }

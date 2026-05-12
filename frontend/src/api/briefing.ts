@@ -3,9 +3,13 @@ import type { AnalysisResult, AddDrugResponse, SafetyBriefing, Medication } from
 
 const api = axios.create({ baseURL: '/api' })
 
-export async function generateBriefing(analysisResult: AnalysisResult): Promise<SafetyBriefing> {
+export async function generateBriefing(
+  analysisResult: AnalysisResult,
+  includeFaers = true,
+): Promise<SafetyBriefing> {
   const { data } = await api.post<SafetyBriefing>('/briefing/generate', {
     analysis_result: analysisResult,
+    include_faers: includeFaers,
   })
   return data
 }

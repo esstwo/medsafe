@@ -175,7 +175,33 @@ async def retrieve(
 
     fused_ids = sorted(rrf_scores, key=lambda d: rrf_scores[d], reverse=True)
 
-    # Build final result list; fall back to dense_pairs for docs not in all_results
+    # Fetch BM25-only hits from ChromaDB (not in all_results because dense search was skipped)
+    bm25_only_ids = [d for d in bm25_ranking if d not in all_results]
+    if bm25_only_ids:
+        try:
+            # Determine which collection each doc belongs to by ID prefix convention
+            label_ids = [d for d in bm25_only_ids if not d.startswith("drugbank_")]
+            interaction_ids = [d for d in bm25_only_ids if d.startswith("drugbank_")]
+            if label_ids:
+                fetched = labels_col.get(ids=label_ids, include=["documents", "metadatas"])
+                for fid, doc, meta in zip(fetched["ids"], fetched["documents"], fetched["metadatas"]):
+                    all_results[fid] = RetrievalResult(
+                        text=doc, source_type="dailymed_label",
+                        rxcui=meta.get("rxcui"), section_type=meta.get("section_type"),
+                        drug_name=meta.get("drug_name"), setid=meta.get("setid"),
+                    )
+            if interaction_ids:
+                fetched = interactions_col.get(ids=interaction_ids, include=["documents", "metadatas"])
+                for fid, doc, meta in zip(fetched["ids"], fetched["documents"], fetched["metadatas"]):
+                    all_results[fid] = RetrievalResult(
+                        text=doc, source_type="drugbank_interaction",
+                        rxcui=meta.get("rxcui_a"), drug_name=meta.get("drug_a_name"),
+                        severity=meta.get("severity"), drugbank_id=meta.get("drugbank_id"),
+                    )
+        except Exception as exc:
+            logger.warning("BM25-only fetch from ChromaDB failed: %s", exc)
+
+    # Build final result list
     fused_results: list[RetrievalResult] = []
     for doc_id in fused_ids:
         if doc_id in all_results:

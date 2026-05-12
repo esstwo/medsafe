@@ -6,10 +6,12 @@ from pydantic import BaseModel
 from guardrails.input_guards import run_input_guards
 from guardrails.output_guards import apply_output_guards
 from models.analysis import AnalysisResult
+from models.briefing import Attribution
 from models.interaction import Interaction
 from models.medication import Medication
 from tools.interaction_checker import calculate_interaction_matrix, check_interaction_pair
 from tools.normalizer import normalize_medication
+from tools.symptom_attributor import attribute_symptoms
 
 router = APIRouter()
 
@@ -28,6 +30,16 @@ class AddDrugRequest(BaseModel):
 class AddDrugResponse(BaseModel):
     new_medication: Medication
     new_interactions: list[Interaction]
+
+
+class SymptomsRequest(BaseModel):
+    symptoms: list[str]
+    medications: list[Medication]
+    session_id: str = ""
+
+
+class AttributionResponse(BaseModel):
+    attributions: list[Attribution]
 
 
 @router.post("/full", response_model=AnalysisResult)
@@ -64,3 +76,11 @@ async def add_drug(req: AddDrugRequest) -> AddDrugResponse:
     new_interactions = apply_output_guards(new_interactions)
 
     return AddDrugResponse(new_medication=new_med, new_interactions=new_interactions)
+
+
+@router.post("/symptoms", response_model=AttributionResponse)
+async def symptoms_endpoint(req: SymptomsRequest) -> AttributionResponse:
+    if not req.symptoms or not req.medications:
+        return AttributionResponse(attributions=[])
+    attributions = await attribute_symptoms(req.symptoms, req.medications)
+    return AttributionResponse(attributions=attributions)

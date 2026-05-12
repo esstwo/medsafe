@@ -114,7 +114,7 @@ def register_tools(server: Server) -> None:
             ),
             Tool(
                 name="attribute_symptoms",
-                description="Attribute reported symptoms to drugs in the medication list (stub — Week 5).",
+                description="Attribute reported symptoms to drugs in the medication list using FDA label adverse reaction data.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -190,10 +190,15 @@ async def _dispatch(name: str, args: dict[str, Any]) -> Any:
             }
 
         case "get_adverse_events":
-            return {"drug_name": args["drug_name"], "reports": [], "data_sparse": True, "note": "Full FAERS data available in Week 5"}
+            from tools.openfda import get_faers_data
+            result = await get_faers_data(args["drug_name"], rxcui=args.get("rxcui"))
+            return result.model_dump()
 
         case "attribute_symptoms":
-            return []
+            from tools.symptom_attributor import attribute_symptoms as _attr
+            meds = [Medication.model_validate(m) for m in args["medications"]]
+            attributions = await _attr(args["symptoms"], meds)
+            return [a.model_dump() for a in attributions]
 
         case _:
             return {"error": f"Unknown tool: {name}"}
