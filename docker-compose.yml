@@ -1,0 +1,14 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      - CHROMA_PERSIST_PATH=/data/chroma
+      - DRUGBANK_SQLITE_PATH=/data/drugbank.db
