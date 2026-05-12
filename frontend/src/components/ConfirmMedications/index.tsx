@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { confirmMedications, normalizeMedications } from '@/api/medications'
+import { runFullAnalysis } from '@/api/analysis'
 import { useSessionStore } from '@/store/sessionStore'
 import type { Medication } from '@/types'
 
@@ -25,8 +26,10 @@ function TypeBadge({ type }: { type: Medication['type'] }) {
 }
 
 export function ConfirmMedications() {
-  const { medications, setMedications, setStep, setSessionId, isLoading, setLoading, warnings } =
-    useSessionStore()
+  const {
+    medications, setMedications, setStep, setSessionId,
+    isLoading, setLoading, warnings, setAnalysisResult,
+  } = useSessionStore()
 
   const [editValues, setEditValues] = useState<Record<number, string>>({})
 
@@ -50,8 +53,10 @@ export function ConfirmMedications() {
   async function handleConfirm() {
     setLoading(true)
     try {
-      const result = await confirmMedications(medications)
-      setSessionId(result.session_id)
+      const confirmed = await confirmMedications(medications)
+      setSessionId(confirmed.session_id)
+      const analysis = await runFullAnalysis(confirmed.medications, confirmed.session_id)
+      setAnalysisResult(analysis)
       setStep('analysis')
     } finally {
       setLoading(false)
@@ -131,7 +136,9 @@ export function ConfirmMedications() {
       </div>
 
       <Button onClick={handleConfirm} disabled={isLoading} className="w-full sm:w-auto">
-        {isLoading ? 'Confirming…' : `Confirm ${medications.length} Medication${medications.length !== 1 ? 's' : ''}`}
+        {isLoading
+          ? 'Analysing interactions…'
+          : `Confirm & Check Interactions`}
       </Button>
     </div>
   )

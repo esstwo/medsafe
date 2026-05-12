@@ -16,6 +16,7 @@ dependencies = [
     "lxml==5.*",
     "aiofiles==24.*",
     "beautifulsoup4==4.*",
+    "anthropic==0.55.*",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +28,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["app*", "api*", "models*", "tools*", "guardrails*", "orchestrator*", "rag*", "eval*", "scripts*"]
+include = ["app*", "api*", "models*", "tools*", "guardrails*", "orchestrator*", "rag*", "eval*", "scripts*", "db*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

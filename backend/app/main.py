@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from api.medications import router as medications_router
 from api.rag import router as rag_router
+from api.analysis import router as analysis_router
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ app.add_middleware(
 
 app.include_router(medications_router, prefix="/api/medications")
 app.include_router(rag_router, prefix="/api/rag")
+app.include_router(analysis_router, prefix="/api/analysis")
 
 
 @app.get("/api/health")
