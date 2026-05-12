@@ -1,10 +1,15 @@
+import asyncio
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from guardrails.input_guards import run_input_guards
 from guardrails.output_guards import apply_output_guards
 from models.analysis import AnalysisResult
+from models.interaction import Interaction
 from models.medication import Medication
-from tools.interaction_checker import calculate_interaction_matrix
+from tools.interaction_checker import calculate_interaction_matrix, check_interaction_pair
+from tools.normalizer import normalize_medication
 
 router = APIRouter()
 
@@ -12,6 +17,17 @@ router = APIRouter()
 class AnalysisRequest(BaseModel):
     medications: list[Medication]
     session_id: str = ""
+
+
+class AddDrugRequest(BaseModel):
+    existing_medications: list[Medication]
+    new_drug: str
+    session_id: str = ""
+
+
+class AddDrugResponse(BaseModel):
+    new_medication: Medication
+    new_interactions: list[Interaction]
 
 
 @router.post("/full", response_model=AnalysisResult)
@@ -28,3 +44,23 @@ async def full_analysis(req: AnalysisRequest) -> AnalysisResult:
         result.session_id = req.session_id
     result.interactions = apply_output_guards(result.interactions)
     return result
+
+
+@router.post("/add-drug", response_model=AddDrugResponse)
+async def add_drug(req: AddDrugRequest) -> AddDrugResponse:
+    guard = run_input_guards(req.new_drug)
+    if guard.blocked:
+        # Return as a safe empty response rather than an error — the UI shows the guardrail message
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail={"blocked": True, "message": guard.message, "action": guard.action},
+        )
+
+    new_med = await normalize_medication(guard.cleaned_text)
+    new_interactions: list[Interaction] = list(
+        await asyncio.gather(*[check_interaction_pair(new_med, m) for m in req.existing_medications])
+    )
+    new_interactions = apply_output_guards(new_interactions)
+
+    return AddDrugResponse(new_medication=new_med, new_interactions=new_interactions)

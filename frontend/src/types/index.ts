@@ -46,3 +46,28 @@ export interface AnalysisResult {
   medications: Medication[]
   interactions: Interaction[]
 }
+
+export interface Citation {
+  source_type: string
+  source_id: string
+  title: string | null
+  url: string | null
+  section: string | null
+}
+
+export interface SafetyBriefing {
+  session_id: string
+  generated_at: string
+  medications: Medication[]
+  interactions: Interaction[]
+  symptom_attributions: null
+  adverse_events: null
+  provider_questions: string[]
+  disclaimer: string
+  sources: Citation[]
+}
+
+export interface AddDrugResponse {
+  new_medication: Medication
+  new_interactions: Interaction[]
+}

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AnalysisResult, Medication } from '@/types'
+import type { AnalysisResult, Medication, SafetyBriefing } from '@/types'
 
 type Step = 'input' | 'confirm' | 'analysis' | 'briefing'
 
@@ -10,12 +10,14 @@ interface SessionState {
   isLoading: boolean
   warnings: string[]
   analysisResult: AnalysisResult | null
+  briefing: SafetyBriefing | null
   setMedications: (meds: Medication[]) => void
   setStep: (step: Step) => void
   setLoading: (v: boolean) => void
   setSessionId: (id: string) => void
   setWarnings: (w: string[]) => void
   setAnalysisResult: (result: AnalysisResult) => void
+  setBriefing: (b: SafetyBriefing) => void
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -25,10 +27,12 @@ export const useSessionStore = create<SessionState>((set) => ({
   isLoading: false,
   warnings: [],
   analysisResult: null,
+  briefing: null,
   setMedications: (medications) => set({ medications }),
   setStep: (currentStep) => set({ currentStep }),
   setLoading: (isLoading) => set({ isLoading }),
   setSessionId: (sessionId) => set({ sessionId }),
   setWarnings: (warnings) => set({ warnings }),
   setAnalysisResult: (analysisResult) => set({ analysisResult }),
+  setBriefing: (briefing) => set({ briefing }),
 }))

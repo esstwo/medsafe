@@ -3,8 +3,10 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { generateBriefing, addDrug } from '@/api/briefing'
 import { useSessionStore } from '@/store/sessionStore'
 import type { AnalysisResult, Interaction } from '@/types'
 
@@ -100,8 +102,38 @@ interface Props {
 }
 
 export function InteractionTable({ result }: Props) {
-  const { setStep } = useSessionStore()
+  const { setStep, sessionId, setBriefing, setAnalysisResult, isLoading, setLoading } = useSessionStore()
   const { interactions, medications } = result
+  const [addDrugText, setAddDrugText] = useState('')
+  const [addDrugLoading, setAddDrugLoading] = useState(false)
+
+  async function handleGenerateBriefing() {
+    setLoading(true)
+    try {
+      const briefing = await generateBriefing(result)
+      setBriefing(briefing)
+      setStep('briefing')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleAddDrug() {
+    if (!addDrugText.trim()) return
+    setAddDrugLoading(true)
+    try {
+      const response = await addDrug(medications, addDrugText.trim(), sessionId || '')
+      const updatedMedications = [...medications, response.new_medication]
+      const updatedInteractions = [...interactions, ...response.new_interactions].sort((a, b) => {
+        const order: Record<string, number> = { major: 0, moderate: 1, minor: 2, unknown: 3 }
+        return (order[a.severity] ?? 3) - (order[b.severity] ?? 3)
+      })
+      setAnalysisResult({ ...result, medications: updatedMedications, interactions: updatedInteractions })
+      setAddDrugText('')
+    } finally {
+      setAddDrugLoading(false)
+    }
+  }
 
   const pairCount = (medications.length * (medications.length - 1)) / 2
   const flaggedCount = interactions.filter(i => i.severity !== 'unknown').length
@@ -164,7 +196,33 @@ export function InteractionTable({ result }: Props) {
         </div>
       )}
 
-      <p className="mt-6 text-xs text-slate-400 text-center">
+      {/* Add another drug */}
+      <div className="mt-6 flex gap-2">
+        <Input
+          value={addDrugText}
+          onChange={(e) => setAddDrugText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAddDrug()}
+          placeholder="Add another drug or supplement…"
+          disabled={addDrugLoading}
+          className="flex-1"
+        />
+        <Button
+          variant="outline"
+          onClick={handleAddDrug}
+          disabled={addDrugLoading || !addDrugText.trim()}
+        >
+          {addDrugLoading ? 'Checking…' : 'Add'}
+        </Button>
+      </div>
+
+      {/* Generate briefing */}
+      <div className="mt-4 flex justify-end">
+        <Button onClick={handleGenerateBriefing} disabled={isLoading}>
+          {isLoading ? 'Generating briefing…' : 'Generate Safety Briefing →'}
+        </Button>
+      </div>
+
+      <p className="mt-4 text-xs text-slate-400 text-center">
         Data sourced from FDA drug labels and DrugBank open data. Always verify with a licensed pharmacist.
       </p>
     </div>
