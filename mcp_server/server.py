@@ -3,22 +3,6 @@ MedSafe MCP Server — stdio transport for Claude Desktop.
 
 Exposes shared-core tools directly to Claude. Claude acts as the orchestrator
 in this path; the server only provides tools, resources, and prompt templates.
-
-Usage (Claude Desktop config):
-  {
-    "mcpServers": {
-      "medsafe": {
-        "command": "/path/to/medsafe/backend/.venv/bin/python",
-        "args": ["/path/to/medsafe/mcp_server/server.py"],
-        "env": {
-          "ANTHROPIC_API_KEY": "...",
-          "OPENAI_API_KEY": "...",
-          "DATABASE_URL": "...",
-          "CHROMA_PERSIST_PATH": "/path/to/medsafe/data/chroma"
-        }
-      }
-    }
-  }
 """
 
 from __future__ import annotations
@@ -27,27 +11,25 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add backend to sys.path so shared-core modules are importable
-_BACKEND = Path(__file__).parent.parent / "backend"
-if str(_BACKEND) not in sys.path:
-    sys.path.insert(0, str(_BACKEND))
+# ── Path setup (must happen before any local imports) ──────────────────────
+_HERE = Path(__file__).parent          # mcp_server/
+_BACKEND = _HERE.parent / "backend"   # backend/
+_ROOT = _HERE.parent                  # repo root
+
+# Insert in reverse priority so _HERE ends up at index 0
+for _p in [str(_ROOT), str(_BACKEND), str(_HERE)]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+# sys.path[0] is now _HERE (mcp_server/), so `from tools import` finds
+# mcp_server/tools.py before backend/tools/__init__.py
+# ───────────────────────────────────────────────────────────────────────────
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from mcp_server.tools import register_tools
-from mcp_server.resources import register_resources
-from mcp_server.prompts import register_prompts
-
-
-def _add_mcp_server_to_path() -> None:
-    """Ensure mcp_server package itself is importable (needed for relative imports above)."""
-    mcp_server_parent = Path(__file__).parent.parent
-    if str(mcp_server_parent) not in sys.path:
-        sys.path.insert(0, str(mcp_server_parent))
-
-
-_add_mcp_server_to_path()
+from mcp_tools import register_tools          # mcp_server/mcp_tools.py
+from mcp_resources import register_resources  # mcp_server/mcp_resources.py
+from mcp_prompts import register_prompts      # mcp_server/mcp_prompts.py
 
 server = Server("medsafe")
 register_tools(server)
