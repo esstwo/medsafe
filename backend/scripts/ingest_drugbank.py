@@ -106,10 +106,11 @@ SEED_INTERACTIONS = [
      "Both fluoxetine and omeprazole are metabolised by CYP2C19. Fluoxetine can inhibit CYP2C19, "
      "potentially increasing omeprazole exposure. The interaction is generally not clinically "
      "significant at standard doses but may warrant monitoring in poor CYP2C19 metabolisers.", "DB-stub-019"),
-    ("83367", "atorvastatin", "1114883", "grapefruit", "moderate",
-     "Grapefruit and grapefruit juice contain furanocoumarins that irreversibly inhibit intestinal "
-     "CYP3A4, increasing atorvastatin AUC up to 2.5-fold. This raises myopathy risk. Patients should "
-     "avoid consuming large quantities of grapefruit while taking atorvastatin.", "DB-stub-020"),
+    ("321076", "clopidogrel", "40790", "omeprazole", "moderate",
+     "Omeprazole is a potent inhibitor of CYP2C19, the enzyme responsible for converting clopidogrel "
+     "to its active metabolite. Co-administration reduces clopidogrel antiplatelet activity by up to 50%, "
+     "potentially increasing cardiovascular event risk in patients with ACS or recent stent placement. "
+     "Pantoprazole is a preferred alternative PPI with less CYP2C19 inhibition.", "DB-stub-020"),
     ("36567", "carbamazepine", "41493", "fluoxetine", "moderate",
      "Fluoxetine inhibits CYP3A4 and CYP2D6, increasing carbamazepine plasma concentrations and "
      "the risk of carbamazepine toxicity (diplopia, dizziness, ataxia). Carbamazepine also induces "

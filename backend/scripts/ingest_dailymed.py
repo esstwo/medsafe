@@ -1,8 +1,9 @@
 """
-Ingest top-200 US drug labels from DailyMed API → ChromaDB.
+Ingest top-200 US drug labels from openFDA drug label API → ChromaDB.
 
-Fetches SPL XML for each drug, parses the 4 key sections by LOINC code,
-chunks text, embeds via OpenAI, and upserts into the medsafe_labels collection.
+openFDA returns FDA label text in clean JSON (same underlying data as DailyMed SPL,
+but via a reliable API with no XML parsing required). Extracts four key sections per
+drug, chunks them, embeds via OpenAI, and upserts into the medsafe_labels collection.
 
 Run from backend/:  python -m scripts.ingest_dailymed
 """
@@ -11,27 +12,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import sys
 import time
 from pathlib import Path
 
 import httpx
-from lxml import etree
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DAILYMED_BASE = "https://dailymed.nlm.nih.gov/dailymed/services/v2"
+OPENFDA_BASE = "https://api.fda.gov/drug/label.json"
 
-# LOINC codes → human-readable section names
-SECTION_LOINC = {
-    "34073-7": "Drug Interactions",
-    "34071-1": "Warnings",
-    "34070-3": "Contraindications",
-    "34084-4": "Adverse Reactions",
+# openFDA field name → human-readable section name
+SECTIONS = {
+    "drug_interactions": "Drug Interactions",
+    "warnings_and_cautions": "Warnings",
+    "warnings": "Warnings",
+    "contraindications": "Contraindications",
+    "adverse_reactions": "Adverse Reactions",
 }
 
 # Top 200 most-prescribed US drugs (generic names)
@@ -43,159 +43,115 @@ TOP_200_DRUGS = [
     "zolpidem", "quetiapine", "aripiprazole", "pantoprazole", "rosuvastatin",
     "simvastatin", "hydrochlorothiazide", "furosemide", "prednisone", "amoxicillin",
     "azithromycin", "doxycycline", "ciprofloxacin", "tramadol", "oxycodone",
-    "hydrocodone", "pregabalin", "insulin glargine", "methotrexate", "cyclosporine",
-    "tacrolimus", "digoxin", "lithium", "phenytoin", "carbamazepine",
-    "valproate", "theophylline", "aspirin", "acetaminophen", "ibuprofen",
-    "naproxen", "cetirizine", "loratadine", "fexofenadine", "montelukast",
-    "atenolol", "carvedilol", "bisoprolol", "verapamil", "diltiazem",
-    "nifedipine", "spironolactone", "allopurinol", "colchicine", "clopidogrel",
-    "rivaroxaban", "apixaban", "dabigatran", "enoxaparin", "heparin",
-    "insulin aspart", "insulin lispro", "glipizide", "glimepiride", "pioglitazone",
-    "sitagliptin", "empagliflozin", "dapagliflozin", "liraglutide", "semaglutide",
-    "enalapril", "ramipril", "benazepril", "captopril", "amlodipine",
-    "irbesartan", "valsartan", "candesartan", "telmisartan", "olmesartan",
-    "hydralazine", "clonidine", "methyldopa", "doxazosin", "terazosin",
-    "tamsulosin", "finasteride", "dutasteride", "sildenafil", "tadalafil",
-    "levothyroxine", "methimazole", "propylthiouracil", "calcitonin", "alendronate",
-    "risedronate", "zoledronic acid", "denosumab", "raloxifene", "teriparatide",
-    "calcium carbonate", "vitamin D3", "ferrous sulfate", "folic acid", "cyanocobalamin",
-    "ondansetron", "metoclopramide", "promethazine", "prochlorperazine", "droperidol",
-    "loperamide", "bismuth subsalicylate", "docusate", "polyethylene glycol", "lactulose",
-    "ranitidine", "famotidine", "esomeprazole", "lansoprazole", "rabeprazole",
-    "hydroxychloroquine", "azathioprine", "leflunomide", "sulfasalazine", "etanercept",
-    "adalimumab", "infliximab", "rituximab", "trastuzumab", "bevacizumab",
-    "imatinib", "erlotinib", "sorafenib", "tamoxifen", "letrozole",
-    "anastrozole", "exemestane", "leuprolide", "bicalutamide", "enzalutamide",
-    "acyclovir", "valacyclovir", "oseltamivir", "ribavirin", "tenofovir",
-    "emtricitabine", "lamivudine", "zidovudine", "efavirenz", "lopinavir",
-    "ritonavir", "atazanavir", "raltegravir", "dolutegravir", "bictegravir",
-    "fluconazole", "itraconazole", "voriconazole", "amphotericin B", "caspofungin",
-    "vancomycin", "daptomycin", "linezolid", "meropenem", "piperacillin",
-    "ceftriaxone", "cefazolin", "clindamycin", "metronidazole", "trimethoprim",
-    "nitrofurantoin", "rifampin", "isoniazid", "ethambutol", "pyrazinamide",
+    "hydrocodone", "pregabalin", "methotrexate", "cyclosporine", "tacrolimus",
+    "digoxin", "lithium", "phenytoin", "carbamazepine", "valproate",
+    "theophylline", "aspirin", "acetaminophen", "ibuprofen", "naproxen",
+    "cetirizine", "loratadine", "fexofenadine", "montelukant", "atenolol",
+    "carvedilol", "bisoprolol", "verapamil", "diltiazem", "nifedipine",
+    "spironolactone", "allopurinol", "colchicine", "rivaroxaban", "apixaban",
+    "dabigatran", "enoxaparin", "glipizide", "glimepiride", "pioglitazone",
+    "sitagliptin", "empagliflozin", "dapagliflozin", "enalapril", "ramipril",
+    "irbesartan", "valsartan", "candesartan", "olmesartan", "hydralazine",
+    "clonidine", "tamsulosin", "finasteride", "sildenafil", "tadalafil",
+    "methimazole", "alendronate", "risedronate", "ondansetron", "metoclopramide",
+    "promethazine", "loperamide", "polyethylene glycol", "esomeprazole",
+    "lansoprazole", "rabeprazole", "hydroxychloroquine", "azathioprine",
+    "leflunomide", "sulfasalazine", "acyclovir", "valacyclovir", "oseltamivir",
+    "tenofovir", "emtricitabine", "fluconazole", "itraconazole", "voriconazole",
+    "vancomycin", "linezolid", "meropenem", "ceftriaxone", "clindamycin",
+    "metronidazole", "trimethoprim", "nitrofurantoin", "rifampin", "isoniazid",
     "codeine", "morphine", "fentanyl", "buprenorphine", "naloxone",
-    "naltrexone", "methadone", "oxymorphone", "hydromorphone", "tapentadol",
-    "cyclobenzaprine", "tizanidine", "baclofen", "methocarbamol", "carisoprodol",
-    "diphenhydramine", "hydroxyzine", "meclizine", "scopolamine", "benztropine",
-    "donepezil", "memantine", "rivastigmine", "galantamine", "levodopa",
-    "carbidopa", "ropinirole", "pramipexole", "entacapone", "selegiline",
-    "topiramate", "lamotrigine", "levetiracetam", "oxcarbazepine", "lacosamide",
-    "sumatriptan", "rizatriptan", "zolmitriptan", "propranolol", "amitriptyline",
-    "nortriptyline", "venlafaxine", "mirtazapine", "trazodone", "buspirone",
-    "haloperidol", "risperidone", "olanzapine", "clozapine", "ziprasidone",
-    "lithium", "valproic acid", "lamotrigine", "divalproex", "oxcarbazepine",
+    "naltrexone", "methadone", "cyclobenzaprine", "tizanidine", "baclofen",
+    "diphenhydramine", "hydroxyzine", "meclizine", "donepezil", "memantine",
+    "levodopa", "carbidopa", "ropinirole", "pramipexole", "topiramate",
+    "lamotrigine", "levetiracetam", "oxcarbazepine", "lacosamide", "sumatriptan",
+    "propranolol", "amitriptyline", "nortriptyline", "venlafaxine", "mirtazapine",
+    "trazodone", "buspirone", "haloperidol", "risperidone", "olanzapine",
+    "clozapine", "ziprasidone", "divalproex", "insulin glargine", "insulin aspart",
+    "liraglutide", "semaglutide", "tamoxifen", "letrozole", "anastrozole",
+    "imatinib", "rituximab", "adalimumab", "etanercept", "infliximab",
+    "clopidogrel", "aspirin", "warfarin", "heparin", "acetaminophen",
 ]
+
 # Deduplicate while preserving order
 _seen: set[str] = set()
 TOP_200_DRUGS = [d for d in TOP_200_DRUGS if not (d in _seen or _seen.add(d))]  # type: ignore[func-returns-value]
 
 
-def _extract_text_from_xml(element) -> str:
-    """Recursively extract plain text from an SPL XML element."""
-    parts: list[str] = []
-    if element.text:
-        parts.append(element.text.strip())
-    for child in element:
-        tag = etree.QName(child.tag).localname if child.tag else ""
-        if tag in {"content", "paragraph", "item", "caption", "td", "th"}:
-            parts.append(_extract_text_from_xml(child))
-        elif tag == "br":
-            parts.append("\n")
-        else:
-            parts.append(_extract_text_from_xml(child))
-        if child.tail:
-            parts.append(child.tail.strip())
-    return " ".join(p for p in parts if p)
-
-
-def _clean(text: str) -> str:
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-
-async def fetch_setid(client: httpx.AsyncClient, drug_name: str) -> str | None:
+async def fetch_label(
+    client: httpx.AsyncClient,
+    drug_name: str,
+    api_key: str | None,
+) -> dict | None:
+    params: dict = {
+        "search": f'openfda.generic_name:"{drug_name}"',
+        "limit": 1,
+    }
+    if api_key:
+        params["api_key"] = api_key
     try:
-        resp = await client.get(
-            f"{DAILYMED_BASE}/drugs.json",
-            params={"drug_name": drug_name, "pagesize": 1},
-            timeout=15,
-        )
+        resp = await client.get(OPENFDA_BASE, params=params, timeout=15)
+        if resp.status_code == 404:
+            # Try brand name search as fallback
+            params["search"] = f'openfda.brand_name:"{drug_name}"'
+            resp = await client.get(OPENFDA_BASE, params=params, timeout=15)
+        if resp.status_code == 404:
+            return None
         resp.raise_for_status()
         data = resp.json()
-        results = data.get("data", [])
-        if results:
-            return results[0].get("setid")
+        results = data.get("results", [])
+        return results[0] if results else None
     except Exception as exc:
-        logger.debug("DailyMed search failed for %s: %s", drug_name, exc)
-    return None
+        logger.debug("openFDA fetch failed for %s: %s", drug_name, exc)
+        return None
 
 
-async def fetch_spl_xml(client: httpx.AsyncClient, setid: str) -> bytes | None:
-    try:
-        resp = await client.get(f"{DAILYMED_BASE}/spls/{setid}.xml", timeout=30)
-        resp.raise_for_status()
-        return resp.content
-    except Exception as exc:
-        logger.debug("SPL fetch failed for setid %s: %s", setid, exc)
-    return None
-
-
-def parse_sections(xml_bytes: bytes) -> dict[str, str]:
-    """Return {section_name: text} for target LOINC-coded sections."""
+def extract_sections(label: dict) -> dict[str, str]:
+    """Return {section_name: text} for target sections."""
     sections: dict[str, str] = {}
-    try:
-        root = etree.fromstring(xml_bytes)
-        # SPL uses HL7 namespace
-        ns = {"spl": "urn:hl7-org:v3"}
-
-        for section in root.iter("{urn:hl7-org:v3}section"):
-            code_elem = section.find("{urn:hl7-org:v3}code")
-            if code_elem is None:
-                continue
-            loinc = code_elem.get("code", "")
-            if loinc not in SECTION_LOINC:
-                continue
-            text_elem = section.find("{urn:hl7-org:v3}text")
-            if text_elem is None:
-                continue
-            raw = _extract_text_from_xml(text_elem)
-            clean = _clean(raw)
-            if len(clean) > 50:
-                sections[SECTION_LOINC[loinc]] = clean
-    except etree.XMLSyntaxError as exc:
-        logger.debug("XML parse error: %s", exc)
+    seen_names: set[str] = set()
+    for field, section_name in SECTIONS.items():
+        if section_name in seen_names:
+            continue  # skip 'warnings' if 'warnings_and_cautions' already found
+        values = label.get(field)
+        if values and isinstance(values, list) and values[0]:
+            text = " ".join(values).strip()
+            if len(text) > 100:
+                sections[section_name] = text
+                seen_names.add(section_name)
     return sections
 
 
 async def process_drug(
     client: httpx.AsyncClient,
     drug_name: str,
+    api_key: str | None,
     chunks_out: list,
 ) -> None:
     from tools.rxnorm import approximate_term
     from rag.ingest import LabelChunk, _chunk_text
 
-    setid = await fetch_setid(client, drug_name)
-    if not setid:
-        logger.debug("No DailyMed result for: %s", drug_name)
+    label = await fetch_label(client, drug_name, api_key)
+    if not label:
+        logger.debug("No FDA label found: %s", drug_name)
         return
 
-    # Resolve RXCUI
-    candidates = await approximate_term(drug_name, max_entries=1)
-    rxcui = candidates[0]["rxcui"] if candidates else ""
+    openfda = label.get("openfda", {})
+    rxcuis = openfda.get("rxcui", [])
+    rxcui = rxcuis[0] if rxcuis else ""
+    setid = (openfda.get("spl_set_id") or [""])[0]
 
-    xml_bytes = await fetch_spl_xml(client, setid)
-    if not xml_bytes:
-        return
+    if not rxcui:
+        candidates = await approximate_term(drug_name, max_entries=1)
+        rxcui = candidates[0]["rxcui"] if candidates else ""
 
-    sections = parse_sections(xml_bytes)
+    sections = extract_sections(label)
     if not sections:
-        logger.debug("No target sections found for %s (setid=%s)", drug_name, setid)
+        logger.debug("No target sections for %s", drug_name)
         return
 
     for section_name, text in sections.items():
-        text_chunks = _chunk_text(text)
-        for i, chunk in enumerate(text_chunks):
+        for i, chunk in enumerate(_chunk_text(text)):
             chunks_out.append(LabelChunk(
                 setid=setid,
                 rxcui=rxcui,
@@ -206,7 +162,8 @@ async def process_drug(
                 chunk_index=i,
             ))
 
-    logger.info("Processed %-30s  setid=%-40s  sections=%s", drug_name, setid, list(sections))
+    logger.info("%-30s  rxcui=%-12s  sections=%s  chunks=%d",
+                drug_name, rxcui, list(sections), sum(1 for _ in sections))
 
 
 async def main() -> None:
@@ -215,34 +172,33 @@ async def main() -> None:
 
     settings = get_settings()
     if not settings.openai_api_key:
-        logger.error("OPENAI_API_KEY is required for DailyMed ingest. Aborting.")
+        logger.error("OPENAI_API_KEY is required. Aborting.")
         sys.exit(1)
 
+    api_key = settings.openfda_api_key or None
     all_chunks: list = []
-    rate_limit_delay = 0.5  # 2 req/sec to DailyMed
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         for i, drug_name in enumerate(TOP_200_DRUGS):
-            await process_drug(client, drug_name, all_chunks)
-            if (i + 1) % 20 == 0:
-                logger.info("Progress: %d/%d drugs processed, %d chunks accumulated",
+            await process_drug(client, drug_name, api_key, all_chunks)
+            if (i + 1) % 25 == 0:
+                logger.info("Progress: %d/%d drugs, %d chunks so far",
                             i + 1, len(TOP_200_DRUGS), len(all_chunks))
-            time.sleep(rate_limit_delay)
+            time.sleep(0.25)  # ~4 req/sec; openFDA allows 240/min with key, 40/min without
 
     if not all_chunks:
-        logger.warning("No chunks collected — nothing to embed.")
+        logger.warning("No chunks collected — check network or API key.")
         return
 
     logger.info("Embedding and loading %d chunks into ChromaDB...", len(all_chunks))
-    # Process in batches to avoid memory spikes
     batch = 200
     for i in range(0, len(all_chunks), batch):
-        await add_label_chunks(all_chunks[i : i + batch])
+        await add_label_chunks(all_chunks[i: i + batch])
         logger.info("Loaded chunks %d–%d", i, min(i + batch, len(all_chunks)))
 
     logger.info("Building BM25 index...")
     build_and_save_bm25_index()
-    logger.info("DailyMed ingest complete. %d chunks loaded.", len(all_chunks))
+    logger.info("Done. %d chunks loaded into ChromaDB.", len(all_chunks))
 
 
 if __name__ == "__main__":

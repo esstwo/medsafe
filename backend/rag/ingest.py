@@ -145,6 +145,18 @@ async def add_label_chunks(chunks: list[LabelChunk]) -> None:
     if not chunks:
         return
     collection = get_labels_collection()
+
+    # Deduplicate by ID within this batch (can happen when two drug names map
+    # to the same FDA label, e.g. tenofovir + emtricitabine → Truvada)
+    seen: set[str] = set()
+    deduped: list[LabelChunk] = []
+    for c in chunks:
+        chunk_id = f"{c.setid}_{c.section_type.replace(' ', '_')}_{c.chunk_index}"
+        if chunk_id not in seen:
+            seen.add(chunk_id)
+            deduped.append(c)
+    chunks = deduped
+
     ids = [f"{c.setid}_{c.section_type.replace(' ', '_')}_{c.chunk_index}" for c in chunks]
     texts = [c.text for c in chunks]
     metadatas: list[dict[str, Any]] = [
@@ -166,6 +178,17 @@ async def add_interaction_chunks(interactions: list[InteractionChunk]) -> None:
     if not interactions:
         return
     collection = get_interactions_collection()
+
+    # Deduplicate by canonical pair ID before upserting
+    seen: set[str] = set()
+    deduped: list[InteractionChunk] = []
+    for i in interactions:
+        pair_id = f"drugbank_{min(i.rxcui_a, i.rxcui_b)}_{max(i.rxcui_a, i.rxcui_b)}"
+        if pair_id not in seen:
+            seen.add(pair_id)
+            deduped.append(i)
+    interactions = deduped
+
     ids = [
         f"drugbank_{min(i.rxcui_a, i.rxcui_b)}_{max(i.rxcui_a, i.rxcui_b)}"
         for i in interactions
