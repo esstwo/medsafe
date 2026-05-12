@@ -125,6 +125,12 @@ export function SafetyBriefingView({ briefing }: Props) {
   // Use briefing.medications as the authoritative source (may differ from store after add-drug flows)
   const meds = briefing.medications
 
+  function faersMatch(symptom: string, reaction: string): boolean {
+    const s = symptom.toLowerCase()
+    const r = reaction.toLowerCase()
+    return r.includes(s) || s.includes(r) || r.split(' ').some(word => word.length > 4 && s.includes(word))
+  }
+
   async function handleCheckSymptoms() {
     const symptomList = symptoms.split(/[,\n]+/).map(s => s.trim()).filter(Boolean)
     if (!symptomList.length) return
@@ -132,8 +138,32 @@ export function SafetyBriefingView({ briefing }: Props) {
     setSymptomError(null)
     setSymptomAttributions(null)
     try {
+      // Primary: FDA label-based attribution via RAG + Claude
       const attributions = await attributeSymptoms(symptomList, meds, sessionId || '')
-      setSymptomAttributions(attributions)
+
+      // Secondary: cross-reference unknown attributions against FAERS top reactions
+      // so the symptom checker and the FAERS panel above are consistent
+      const enhanced = attributions.map(a => {
+        if (a.likelihood !== 'unknown' || !briefing.adverse_events) return a
+        for (const faers of briefing.adverse_events) {
+          if (faers.data_sparse) continue
+          const matchedReaction = faers.top_reactions.find(r => faersMatch(a.symptom, r))
+          if (matchedReaction) {
+            return {
+              ...a,
+              drug_name: faers.drug_name,
+              likelihood: 'possible' as const,
+              evidence_summary:
+                `"${matchedReaction}" appears in FDA FAERS adverse event reports for ${faers.drug_name} ` +
+                `(${faers.total_reports.toLocaleString()} total reports). ` +
+                `FAERS data reflects voluntary reports and does not confirm causation — discuss with your pharmacist.`,
+            }
+          }
+        }
+        return a
+      })
+
+      setSymptomAttributions(enhanced)
     } catch (err) {
       setSymptomError('Could not complete symptom analysis. Please try again.')
     } finally {
