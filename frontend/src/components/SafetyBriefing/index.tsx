@@ -78,21 +78,33 @@ function FAERSPanel({ results }: { results: FAERSResult[] }) {
 }
 
 function SymptomResults({ attributions }: { attributions: Attribution[] }) {
-  const visible = attributions.filter(a => a.likelihood !== 'unknown' || a.drug_name !== 'unknown')
-  if (visible.length === 0) return null
+  if (attributions.length === 0) {
+    return (
+      <p className="text-sm text-slate-500 mt-3">
+        No associations found between these symptoms and your medications in the available FDA label data.
+        Absence of data does not rule out a connection — discuss with your pharmacist.
+      </p>
+    )
+  }
   return (
     <div className="space-y-3 mt-4">
-      {visible.map((a, i) => (
+      {attributions.map((a, i) => (
         <div key={i} className="border rounded-lg p-3 bg-white">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-medium text-sm">{a.symptom}</span>
             <span className="text-slate-400 text-xs">→</span>
-            <span className="text-sm">{a.drug_name === 'unknown' ? 'No attribution found' : a.drug_name}</span>
-            <Badge className={`${LIKELIHOOD_STYLES[a.likelihood]} text-xs capitalize`}>{a.likelihood}</Badge>
+            <span className="text-sm font-medium">
+              {a.drug_name === 'unknown' ? 'No attribution found' : a.drug_name}
+            </span>
+            <Badge className={`${LIKELIHOOD_STYLES[a.likelihood]} text-xs capitalize`}>
+              {a.likelihood}
+            </Badge>
           </div>
           <p className="text-xs text-slate-600">{a.evidence_summary}</p>
           {a.source && (
-            <p className="text-xs text-slate-400 mt-1">Source: {a.source.title || a.source.source_type}</p>
+            <p className="text-xs text-slate-400 mt-1">
+              Source: {a.source.title || a.source.source_type}
+            </p>
           )}
         </div>
       ))}
@@ -105,18 +117,25 @@ interface Props {
 }
 
 export function SafetyBriefingView({ briefing }: Props) {
-  const { setStep, sessionId, medications, symptoms, setSymptoms, symptomAttributions, setSymptomAttributions } = useSessionStore()
+  const { setStep, sessionId, symptoms, setSymptoms, symptomAttributions, setSymptomAttributions } = useSessionStore()
   const [symptomLoading, setSymptomLoading] = useState(false)
+  const [symptomError, setSymptomError] = useState<string | null>(null)
 
   const flagged = briefing.interactions.filter(ix => ix.severity !== 'unknown')
+  // Use briefing.medications as the authoritative source (may differ from store after add-drug flows)
+  const meds = briefing.medications
 
   async function handleCheckSymptoms() {
     const symptomList = symptoms.split(/[,\n]+/).map(s => s.trim()).filter(Boolean)
     if (!symptomList.length) return
     setSymptomLoading(true)
+    setSymptomError(null)
+    setSymptomAttributions(null)
     try {
-      const attributions = await attributeSymptoms(symptomList, medications, sessionId || '')
+      const attributions = await attributeSymptoms(symptomList, meds, sessionId || '')
       setSymptomAttributions(attributions)
+    } catch (err) {
+      setSymptomError('Could not complete symptom analysis. Please try again.')
     } finally {
       setSymptomLoading(false)
     }
@@ -239,7 +258,12 @@ export function SafetyBriefingView({ briefing }: Props) {
           >
             {symptomLoading ? 'Analysing…' : 'Check symptoms'}
           </Button>
-          {symptomAttributions && <SymptomResults attributions={symptomAttributions} />}
+          {symptomError && (
+            <p className="text-sm text-red-600 mt-2">{symptomError}</p>
+          )}
+          {symptomAttributions !== null && (
+            <SymptomResults attributions={symptomAttributions} />
+          )}
         </CardContent>
       </Card>
 
