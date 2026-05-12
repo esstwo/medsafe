@@ -1,20 +1,43 @@
+import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from api.medications import router as medications_router
+from api.rag import router as rag_router
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Placeholder for future DB init, RAG index warm-up, etc.
+    settings = get_settings()
+
+    # Supabase connection pool
+    if settings.database_url:
+        from db.client import get_pool
+        await get_pool()
+        logger.info("Database pool ready")
+    else:
+        logger.warning("DATABASE_URL not set — Supabase features disabled")
+
+    # ChromaDB + BM25 index
+    from rag.ingest import init_chroma
+    init_chroma()
+
     yield
+
+    # Cleanup
+    if settings.database_url:
+        from db.client import close_pool
+        await close_pool()
 
 
 app = FastAPI(
     title="MedSafe API",
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
@@ -32,6 +55,7 @@ app.add_middleware(
 )
 
 app.include_router(medications_router, prefix="/api/medications")
+app.include_router(rag_router, prefix="/api/rag")
 
 
 @app.get("/api/health")
